@@ -133,8 +133,12 @@ so a machine with nothing plugged into it can still be paying for four screens.
 `minCompositeGbPerSec` is a lower bound (pixels × 4 bytes × refresh × 2); compare it against
 what the memory actually delivers, which `physicalMemory.singleChannel` halves.
 
-`likelyVirtual` is a guess — the screen is not attached to an adapter that reported dedicated
-VRAM. Say "likely", not "is".
+`likelyVirtual` is matched against known virtual and indirect display driver names, and nothing
+else. A virtual driver whose name is not in that list reports `false`, so an absent flag is not
+evidence of absence — ask the human how many screens they expect. `adapterHasDedicatedVram` is
+reported separately and is **not** used for this judgement: some integrated GPUs never write
+their VRAM size to the registry, and treating that absence as evidence flagged a real screen as
+virtual on a live machine. Do not infer a positive claim from missing data.
 
 ### `signatures`
 
@@ -319,6 +323,13 @@ machine idling at 1.5 GB free is behaving correctly. Every later number is compa
 what the human says it feels like. The number alone tells you the intervention did something.
 Only the human can tell you whether it mattered.
 
+**Measure while it is actually heavy.** A measurement taken at idle describes the state where
+nothing is wrong, so it can neither confirm nor clear anything. This is the easiest mistake to
+make, because idle is when it is convenient to measure. A clean ping and a near-zero send rate
+during a quiet minute do not exonerate the link; screen streaming is bursty, and a link that is
+narrow but clean behaves exactly like this — fine until something moves on screen. Ask the
+human to reproduce the slowness, and sample during it.
+
 **A null result is a result, and it is the most useful one you will get.** If free memory went
 up tenfold and the machine still feels the same, memory is not the bottleneck. Stop tuning it.
 The failure mode here is continuing to configure the knob you happen to have because it is the
@@ -414,6 +425,7 @@ in `src/*.cs` and you can translate them — that is a normal edit to this repos
 | 順 | 候補 | 実験 | 費用 |
 |---|---|---|---|
 | 0 | 回線（`remoteAccess` が空でないとき） | その機体で**上り**速度・遅延・ゆらぎを測る。有線か無線かも見る | 無料 |
+| — | （どの候補でも）**重い最中に測る** | アイドル時の測定は「異常が出ていない状態」を測っているので、何も肯定も否定もしない | 無料 |
 | 1 | 孤児プロセス | `--dry-run`。`reapCandidates` が空なら1コマンドで除外できる | 無料 |
 | 2 | 実空きの枯渇 | `--lighten` を1回。前後の `freeAndZeroGb` と体感を比べる | 無料 |
 | 3 | 画面の合成負荷 | `graphics.displays`。画面を一時的に減らす／解像度・リフレッシュを下げる | 無料 |

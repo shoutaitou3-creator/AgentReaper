@@ -372,21 +372,23 @@ namespace AgentReaper
                 double gbPerSec = d.Pixels * 4.0 * d.RefreshHz * 2 / 1024 / 1024 / 1024;
                 totalMinGbPerSec += gbPerSec;
 
-                // 専用VRAM を報告したアダプターに紐づかない画面は、仮想ディスプレイドライバーである
-                // ことが多い。推測であって断定ではない。
-                bool likelyVirtual = d.IsMirroring;
-                if (!likelyVirtual)
-                {
-                    likelyVirtual = true;
-                    foreach (var v in vram)
-                    {
-                        if (v.Key != null && d.Adapter != null &&
-                            (d.Adapter.IndexOf(v.Key, StringComparison.OrdinalIgnoreCase) >= 0 ||
-                             v.Key.IndexOf(d.Adapter, StringComparison.OrdinalIgnoreCase) >= 0))
-                        { likelyVirtual = false; break; }
-                    }
-                }
+                // 判定はドライバー名への一致だけで行う。
+                //
+                // 以前は「専用VRAM を報告したアダプターに紐づかない画面＝仮想」としていたが、
+                // レジストリに qwMemorySize を書かない内蔵GPUの機種で実画面まで仮想と誤判定した
+                // （Intel(R) Graphics の実画面が仮想と出た）。無いことを根拠に有ることを主張しない。
+                bool likelyVirtual = d.IsMirroring || IsVirtualAdapterName(d.Adapter);
                 if (likelyVirtual) virtualCount++;
+
+                // 参考情報。専用VRAM を報告したアダプターに紐づいたかどうかを、判定とは分けて出す。
+                bool matchedVramAdapter = false;
+                foreach (var v in vram)
+                {
+                    if (v.Key != null && d.Adapter != null &&
+                        (d.Adapter.IndexOf(v.Key, StringComparison.OrdinalIgnoreCase) >= 0 ||
+                         v.Key.IndexOf(d.Adapter, StringComparison.OrdinalIgnoreCase) >= 0))
+                    { matchedVramAdapter = true; break; }
+                }
 
                 var jd = new JObj();
                 jd.Set("device", d.Device);
@@ -398,6 +400,7 @@ namespace AgentReaper
                 jd.Set("megapixels", Math.Round(d.Pixels / 1000000.0, 2));
                 jd.Set("minCompositeGbPerSec", Math.Round(gbPerSec, 2));
                 jd.Set("likelyVirtual", likelyVirtual);
+                jd.Set("adapterHasDedicatedVram", matchedVramAdapter);
                 displays.Add(jd);
             }
             o.Set("displayCount", ds.Count);
@@ -409,16 +412,38 @@ namespace AgentReaper
                 warnings.Add("仮想ディスプレイとみられる画面が " + virtualCount + " 枚あります（全 "
                     + ds.Count + " 枚）。仮想画面も実画面と同じように内蔵GPUが合成するので、"
                     + "何も表示していなくても帯域を消費します。CPU/GPU の使用率には出ません。"
+                    + "遠隔操作している機体なら、画面が広いぶん送る絵も増えます。"
                     + "重さの切り分けとして、仮想画面を一時的に外して体感を比べること。"
-                    + "（likelyVirtual は「専用VRAM を報告したアダプターに紐づかない画面」という推測。断定ではない）");
+                    + "（likelyVirtual は既知の仮想ディスプレイドライバー名への一致で判定している。"
+                    + "名前が一致しない仮想ドライバーは false のまま出る。断定ではない）");
 
             o.Set("note",
                 "dedicatedVramMb はレジストリの HardwareInformation.qwMemorySize。"
                 + "Win32_VideoController.AdapterRAM は 4GB 超で壊れた値を返すので使っていない。"
                 + "内蔵GPUの共有分は実空きと同じページプールから取る。"
-                + "minCompositeGbPerSec は画素数×4バイト×リフレッシュ×2 の下限見積り。"
-                + "メモリがシングルチャネルだと使える帯域が半分になるので physicalMemory も併せて見ること。");
+                + "minCompositeGbPerSec は画素数×4バイト×リフレッシュ×2 の下限見積りであって、"
+                + "遠隔操作で実際に送られる通信量ではない。"
+                + "likelyVirtual は既知のドライバー名への一致だけで決めている。"
+                + "adapterHasDedicatedVram が false でも仮想とは限らない"
+                + "（内蔵GPUがレジストリに VRAM 量を書かない機種がある）。");
             return o;
+        }
+
+        // 既知の仮想／間接ディスプレイドライバー。名前に出てくる断片で照合する。
+        // ここに無いドライバーは仮想でも false のまま出る。それでよい。
+        // 誤って実画面を仮想と呼ぶより、拾い漏らして人間に「他にもあるか」と確認させるほうが安全。
+        private static readonly string[] VirtualAdapterNames =
+        {
+            "virtual display", "virtual monitor", "parsec", "iddsample", "indirect display",
+            "displaylink", "spacedesk", "amyuni", "duet display", "usb display", "mirage driver",
+        };
+
+        private static bool IsVirtualAdapterName(string adapter)
+        {
+            if (string.IsNullOrEmpty(adapter)) return false;
+            foreach (string s in VirtualAdapterNames)
+                if (adapter.IndexOf(s, StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            return false;
         }
 
         private static byte[] Pad8(byte[] src)
