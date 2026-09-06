@@ -50,21 +50,66 @@ clone した時点で `signatures.conf` は空。これは意図的で、
 
 ## 使いはじめ
 
+1 行ずつ実行する。以下は `C:\dev\AgentReaper` に置く例なので、別の場所にするならパスを読み替えること。
+
+**1. 取得する**
+
 ```powershell
-git clone https://github.com/shoutaitou3-creator/AgentReaper.git
-cd AgentReaper
-powershell -ExecutionPolicy Bypass -File .\build.ps1
-.\dist\AgentReaper.exe --diagnose --json
+git clone https://github.com/shoutaitou3-creator/AgentReaper.git C:\dev\AgentReaper
+```
+
+**2. ビルドする**
+
+```powershell
+powershell -ExecutionPolicy Bypass -File C:\dev\AgentReaper\build.ps1
+```
+
+**3. 測る**（何も変更しない）
+
+```powershell
+C:\dev\AgentReaper\dist\AgentReaper.exe --diagnose --json
 ```
 
 .NET SDK も npm も不要。ダウンロードも無い。`build.ps1` は Windows に同梱されている
 C# コンパイラ（.NET Framework 4.x）を使う。全体で C# 約 3,000 行、読める量。
 
-あとは自分のエージェントに:
+**4. エージェントに設定させる**
 
-> このリポジトリの AGENTS.md を読んで、このPC用に AgentReaper を設定して。
+新しく立ち上げたエージェントは、あなたがどのフォルダの話をしているかを知らない。
+「このリポジトリ」では通じない。**必ず絶対パスで渡すこと。**
+
+> `C:\dev\AgentReaper\AGENTS.md` を全文読んでから `C:\dev\AgentReaper\dist\AgentReaper.exe --diagnose --json` を実行して、このPC用の `signatures.conf` と `settings.conf` を提案してください。プロセスは終了させないでください。`--approve` も実行しないでください。
 
 ドライランを見て承認するまで、何も終了しない。
+
+---
+
+## `--diagnose` が測るもの
+
+何も変更しない。1 回走査して JSON を出すだけ。読む順に並んでいる。
+
+| 項目 | 内容 |
+|---|---|
+| `remoteAccess` | AnyDesk / TeamViewer / RDP 等を検出する。**ここが空でなければ、人間が感じる速さはこの機体ではなく上り回線で決まる。** ローカルの数値だけで結論を出すと必ず読み違える |
+| `memory` | 体感と相関するのは `freeAndZeroGb`。`availableGb` は実空き + スタンバイで、タスクマネージャーの「利用可能」はこちら |
+| `physicalMemory` | スロットの実装状況とチャネル。1 枚挿しは帯域が半分 |
+| `graphics` | 専用VRAM と `displays`（画面の枚数・解像度・リフレッシュ・合成に要る帯域の下限）。仮想ディスプレイも実画面と同じように合成されるので、CPU/GPU 使用率に出ないまま帯域を食う |
+| `reapCandidates` | 回収候補。**空なら `signatures.conf` も空が正解** |
+| `topGroups` | 上位のプロセス群。状況を掴むためだけに使う。ここから設定を書かない |
+| `signatures` / `settings` / `install` | 現在の設定と、拒否された設定とその理由 |
+| `warnings` | 上を人が読める形にまとめたもの。読むならここから |
+
+## 回収するものが無いのに重いとき
+
+`reapCandidates` が空で、CPU も GPU もメモリも余っていて、それでも遅い。これはよくある。
+AgentReaper 単体では直せないが、**どこを何の順で疑うか**は [AGENTS.md](AGENTS.md) に手順として入れてある。
+
+- **平常時のその機体の値を先に控える。** 他機の数値と比べない
+- **重い最中に測る。** アイドル時の測定は「異常が出ていない状態」を測っているので、何も肯定も否定もしない
+- **1 回に 1 つだけ変え、数値と体感の両方を採る**
+- **変わらなかったという結果がいちばん価値がある。** そこを触り続けない
+- **順番は「疑わしい順」ではなく「安い順」**（回線 → 孤児プロセス → 実空き → 画面 → VRAM → メモリ増設）
+- **同じ構成で問題の出ていない機体があるなら、それを使う。** 両方で採って差分を取れば、同じ値の項目は実験なしで候補から外せる
 
 ---
 

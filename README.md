@@ -50,21 +50,67 @@ AGENTS.md too.
 
 ## Quick start
 
+One command at a time. These examples install to `C:\dev\AgentReaper` — substitute your own path.
+
+**1. Get it**
+
 ```powershell
-git clone https://github.com/shoutaitou3-creator/AgentReaper.git
-cd AgentReaper
-powershell -ExecutionPolicy Bypass -File .\build.ps1
-.\dist\AgentReaper.exe --diagnose --json
+git clone https://github.com/shoutaitou3-creator/AgentReaper.git C:\dev\AgentReaper
+```
+
+**2. Build it**
+
+```powershell
+powershell -ExecutionPolicy Bypass -File C:\dev\AgentReaper\build.ps1
+```
+
+**3. Measure** (changes nothing)
+
+```powershell
+C:\dev\AgentReaper\dist\AgentReaper.exe --diagnose --json
 ```
 
 No .NET SDK, no npm, no downloads. `build.ps1` uses the C# compiler that already ships with
 Windows (`.NET Framework 4.x`). The whole thing is about 3,000 lines of C# you can read.
 
-Then, in your agent of choice:
+**4. Let an agent configure it**
 
-> Read AGENTS.md in this repo and set AgentReaper up for this machine.
+A freshly started agent has no idea which folder you mean. "This repo" does not resolve.
+**Give it absolute paths.**
+
+> Read all of `C:\dev\AgentReaper\AGENTS.md`, then run `C:\dev\AgentReaper\dist\AgentReaper.exe --diagnose --json` and propose a `signatures.conf` and `settings.conf` for this machine. Do not terminate any process. Do not run `--approve`.
 
 Nothing is terminated until you have seen a dry run and approved it.
+
+---
+
+## What `--diagnose` measures
+
+It changes nothing. One scan, one JSON document, ordered the way you should read it.
+
+| Field | What it tells you |
+|---|---|
+| `remoteAccess` | Detects AnyDesk / TeamViewer / RDP and similar. **If this is not empty, perceived speed is capped by this machine's uplink, not by the machine.** Reading the local numbers without knowing that will mislead you |
+| `memory` | `freeAndZeroGb` is what correlates with stalls. `availableGb` is free + standby — that is the number Task Manager calls "Available" |
+| `physicalMemory` | Slots populated, and channel width. One module halves memory bandwidth |
+| `graphics` | Dedicated VRAM, plus `displays` — count, resolution, refresh, and a lower bound on composition bandwidth. Driver-added virtual screens are composed exactly like physical ones and cost bandwidth that appears in no utilization percentage |
+| `reapCandidates` | The reaping targets. **If empty, an empty `signatures.conf` is the correct outcome** |
+| `topGroups` | The largest process groups. Context only — never write a signature from this |
+| `signatures` / `settings` / `install` | Current configuration, and anything that was rejected, with the reason |
+| `warnings` | The above, assembled into human-readable findings. Start here |
+
+## When nothing is leaking and it is still slow
+
+`reapCandidates` is empty, every utilization figure has headroom, and the machine is still
+slow. This is the common case. AgentReaper cannot fix it alone, but **the order in which to
+suspect things** is written up as a procedure in [AGENTS.md](AGENTS.md).
+
+- **Record this machine's own idle baseline first.** Never compare against another machine's number
+- **Measure while it is actually heavy.** An idle measurement describes the state where nothing is wrong, so it neither confirms nor clears anything
+- **Change one thing at a time, and collect both the number and how it feels**
+- **A null result is a result** — stop tuning the knob that did nothing
+- **Work in cost order, not suspicion order** (link → orphaned processes → free pages → screens → VRAM → buying memory)
+- **If a second machine of the same build does not have the problem, diff the two.** Every field that matches is eliminated with no experiment at all
 
 ---
 
