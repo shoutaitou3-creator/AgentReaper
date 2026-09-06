@@ -78,6 +78,20 @@ SDK to install and no package to download.
 
 Field guide, in the order that matters:
 
+### `remoteAccess`
+
+Read this first, because it changes what every other number means. If `tools` is non-empty or
+`rdpSession` is true, the human is not sitting at this machine — they are watching a video of
+it. What they call "slow" is then bounded by the **uplink** of this machine: its bandwidth, its
+latency, and its jitter. None of that appears anywhere else in this file.
+
+A machine with idle CPU, plenty of free pages and a healthy GPU can feel unusable over a
+starved uplink, and no amount of configuration here will change that. It also compounds with
+`graphics.displays`: a wider desktop is more pixels to encode and send.
+
+Do not diagnose local slowness on a remotely-operated machine without first establishing that
+the link is not the constraint.
+
 ### `reapCandidates`
 
 The whole point. Each entry is a group of processes that are **all** of:
@@ -270,6 +284,13 @@ CPU, GPU and memory all show headroom". Report these; do not act on them.
   An integrated GPU shares that bandwidth, so composition stalls while every utilization
   percentage looks idle. Adding a second matched module is a hardware change; report it.
 
+- **The machine is being operated remotely (`remoteAccess`).** The human is watching an
+  encoded video of the desktop. Their experience is capped by this machine's uplink — its
+  bandwidth, latency and jitter — none of which is visible in any local counter. This is the
+  one finding that can invalidate every other reading in the file, which is why it is reported
+  first. Uplink is usually far smaller than downlink on ordinary lines, and screen sharing is
+  entirely uplink.
+
 - **Several attached screens on an integrated GPU.** Composition bandwidth comes out of the
   same memory the CPU is using. Screens added by a driver count; the human may not think of
   them as screens at all. Combined with single-channel memory this is additive, and neither
@@ -309,11 +330,19 @@ purchase would have helped.
 
 | Order | Candidate | Experiment | Cost |
 |---|---|---|---|
+| 0 | The link, if `remoteAccess` is non-empty | Measure upload speed, latency and jitter **on this machine**. Check wired vs wireless. | free |
 | 1 | Orphaned processes | `--dry-run`. An empty `reapCandidates` rules this out in one command. | free |
 | 2 | Free-page exhaustion | `--lighten` once. Compare `freeAndZeroGb` before and after, and ask how it feels. | free |
 | 3 | Composition load | `graphics.displays`. Temporarily remove a screen, or lower its resolution or refresh rate, and ask again. | free |
 | 4 | Dedicated VRAM too small | Firmware or GPU software. Needs a reboot. | free, disruptive |
 | 5 | Single-channel memory | Fitting a second module. | money |
+
+**If a second machine of the same model exists and does not have the problem, use it.** Run
+`--diagnose --json` on both and diff the two files. Every field that is identical on both is
+eliminated in one step, no experiment required — it cannot explain a difference it does not
+have. This is worth more than any single measurement, and people rarely think of it because the
+healthy machine is not the one they are annoyed at. Ask whether such a machine exists before
+starting the list below.
 
 Do not skip to 5 because it is the most satisfying explanation. If 2 produced a null result and
 3 was never tried, a memory purchase is a guess with an invoice attached.
@@ -368,6 +397,12 @@ in `src/*.cs` and you can translate them — that is a normal edit to this repos
 
 回収するものが無いのに重い場合（よくある）:
 
+- **`remoteAccess` を最初に読む。** 空でなければ、人間は機体そのものではなく画面の映像を見ている。
+  体感の上限はその機体の**上り**回線（帯域・遅延・ゆらぎ）で決まり、ローカルのどの数値にも現れない。
+  ここを確かめる前に機体の中を診断しない。
+- **同じ構成で問題の出ていない機体があるなら、それを使う。** 両方で `--diagnose --json` を採って
+  差分を見る。**両方で同じ値の項目は、それだけで候補から外せる**（差を説明できないので）。
+  実験より速く、確実。健康な方の機体は誰も気にしていないので見落とされやすい。
 - まず平常時の `memory.freeAndZeroGb` を控える。それがこの機体の平常値。搭載量が何GBでも
   小さい（32GB 機なら 1.5GB 程度が正常）。以後はこの実測値とだけ比べる。他機の数値は使わない。
 - 1回に1つだけ変えて、**数値と体感の両方**を採る。数値は「効いた」ことしか言わない。
@@ -378,6 +413,7 @@ in `src/*.cs` and you can translate them — that is a normal edit to this repos
 
 | 順 | 候補 | 実験 | 費用 |
 |---|---|---|---|
+| 0 | 回線（`remoteAccess` が空でないとき） | その機体で**上り**速度・遅延・ゆらぎを測る。有線か無線かも見る | 無料 |
 | 1 | 孤児プロセス | `--dry-run`。`reapCandidates` が空なら1コマンドで除外できる | 無料 |
 | 2 | 実空きの枯渇 | `--lighten` を1回。前後の `freeAndZeroGb` と体感を比べる | 無料 |
 | 3 | 画面の合成負荷 | `graphics.displays`。画面を一時的に減らす／解像度・リフレッシュを下げる | 無料 |

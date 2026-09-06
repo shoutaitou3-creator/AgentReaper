@@ -229,6 +229,21 @@ namespace AgentReaper
             return list;
         }
 
+        private const int SM_REMOTESESSION = 0x1000;
+
+        [DllImport("user32.dll")]
+        private static extern int GetSystemMetrics(int index);
+
+        /// <summary>
+        /// リモートデスクトップ（RDP）のセッションで動いているか。
+        /// AnyDesk 等の画面配信ツールはコンソールセッションに入るのでここでは false になる。
+        /// </summary>
+        public static bool IsRdpSession()
+        {
+            try { return GetSystemMetrics(SM_REMOTESESSION) != 0; }
+            catch { return false; }
+        }
+
         /// <summary>GetHicon() で作った HICON を解放する（GDI ハンドルリーク防止）。</summary>
         public static void ReleaseIcon(IntPtr handle)
         {

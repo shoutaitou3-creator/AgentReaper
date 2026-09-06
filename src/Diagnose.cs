@@ -42,11 +42,16 @@ namespace AgentReaper
             report.Set("host", Host());
 
             MemSnapshot mem = ProcessScanner.Memory();
+            Dictionary<int, ProcInfo> map = ProcessScanner.Snapshot();
+
+            // 一番外側の条件から先に出す。遠隔操作されている機体では、人間が感じる速さは
+            // この機体の速さではなく回線で決まる。それを知らずに下の数値を読むと必ず読み違える。
+            report.Set("remoteAccess", RemoteAccess(map, warnings));
+
             report.Set("memory", Memory(mem, warnings));
             report.Set("physicalMemory", PhysicalMemory(warnings));
             report.Set("graphics", Graphics(mem, warnings));
 
-            Dictionary<int, ProcInfo> map = ProcessScanner.Snapshot();
             report.Set("processes", Processes(map, mem));
             report.Set("topGroups", TopGroups(map));
             report.Set("reapCandidates", ReapCandidates(map));
@@ -191,6 +196,70 @@ namespace AgentReaper
                 o.Set("singleChannel", false);
             }
 
+            return o;
+        }
+
+        // ---------------- remote access ----------------
+
+        // 画面を遠隔へ配信するツール。動いている間、人間が体験する速さはこの機体の速さではなく、
+        // 上り回線の帯域・遅延・ゆらぎで決まる。ローカルの数値がすべて健全でも操作は重く感じる。
+        private static readonly Dictionary<string, string> RemoteTools =
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                { "anydesk", "AnyDesk" },
+                { "teamviewer", "TeamViewer" },
+                { "tv_w32", "TeamViewer" },
+                { "tv_x64", "TeamViewer" },
+                { "rustdesk", "RustDesk" },
+                { "todesk", "ToDesk" },
+                { "splashtop", "Splashtop" },
+                { "parsec", "Parsec" },
+                { "remoting_host", "Chrome Remote Desktop" },
+                { "winvnc", "VNC" },
+                { "tvnserver", "TightVNC" },
+                { "vncserver", "VNC" },
+                { "dwagent", "DWService" },
+                { "sunloginclient", "SunLogin" },
+            };
+
+        private static JObj RemoteAccess(Dictionary<int, ProcInfo> map, JArr warnings)
+        {
+            var o = new JObj();
+            var found = new JArr();
+            var seen = new List<string>();
+
+            foreach (ProcInfo p in map.Values)
+            {
+                if (p.Name == null) continue;
+                foreach (var t in RemoteTools)
+                {
+                    if (p.Name.IndexOf(t.Key, StringComparison.OrdinalIgnoreCase) < 0) continue;
+                    if (seen.Contains(t.Value)) break;
+                    seen.Add(t.Value);
+                    found.Add(t.Value);
+                    break;
+                }
+            }
+
+            bool rdp = Native.IsRdpSession();
+            o.Set("rdpSession", rdp);
+            o.Set("tools", found);
+
+            if (seen.Count > 0 || rdp)
+            {
+                string what = rdp ? "リモートデスクトップ" : string.Join(" / ", seen.ToArray());
+                warnings.Add("画面を遠隔へ配信する仕組み（" + what + "）が動いています。"
+                    + "この状態で人間が感じる速さは、この機体の速さではなく上り回線の帯域・遅延・ゆらぎで決まります。"
+                    + "以下の memory・graphics・processes がすべて健全でも、上りが細ければ操作は重く感じます。"
+                    + "画面が広いほど送る量も増えるので graphics.displays と直接効き合います。"
+                    + "先に (1) この機体で上り速度と遅延を測る (2) 有線か無線かを確認する "
+                    + "(3) 同じ構成で問題の出ていない機体があれば両方で --diagnose を採って差分を見る。"
+                    + "ローカルの数値だけで結論を出さないこと。");
+            }
+
+            o.Set("note",
+                "ここが空でないなら、体感の重さをこの機体の中だけで説明しようとしない。"
+                + "上り回線が飽和している遠隔操作は、CPU・メモリ・GPU がすべて余っている状態で重くなる。");
             return o;
         }
 
