@@ -1,0 +1,9 @@
+# Normalize to LF in the repository. PowerShell 5.1 and csc both read LF fine,
+# and this keeps a Windows clone from showing every file as modified.
+* text=auto eol=lf
+
+# Config files are read as UTF-8 by the app. Never let them be treated as binary.
+*.conf text eol=lf
+*.ps1  text eol=lf
+*.cs   text eol=lf
+*.md   text eol=lf

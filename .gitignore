@@ -1,0 +1,22 @@
+# Build output. The exe is rebuilt constantly and the log grows on every scan.
+dist/
+
+# Runtime artifacts, wherever they end up
+*.exe
+*.pdb
+agent-reaper.log
+last-report.txt
+diagnose.json
+memory-commands.result
+
+# approved.conf records that a human reviewed a dry run on THIS machine.
+# It is machine-specific and must never be shared or committed - a checked-in
+# approval would let a clone reap without anyone having looked at it.
+approved.conf
+
+# Editors / OS
+.vs/
+.idea/
+*.user
+Thumbs.db
+desktop.ini
