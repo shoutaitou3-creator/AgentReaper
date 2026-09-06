@@ -536,18 +536,36 @@ namespace AgentReaper
             o.Set("maxKillPerPass", s.MaxKillPerPass);
             o.Set("autoLighten", s.AutoLighten);
             o.Set("autoLightenFreeGb", s.AutoLightenFreeGb);
+            o.Set("autoLightenFreeGbSource", s.AutoLightenFreeGbExplicit
+                ? "settings.conf で明示"
+                : "搭載メモリ量から自動算出（搭載量の 4%・下限1.0・上限8.0）");
             o.Set("autoLightenCooldownSeconds", s.AutoLightenCooldownSeconds);
             o.Set("flushModifiedList", s.FlushModifiedList);
             o.Set("purgeLowPriorityStandby", s.PurgeLowPriorityStandby);
             o.Set("purgeAllStandby", s.PurgeAllStandby);
             o.Set("emptyAllWorkingSets", s.EmptyAllWorkingSets);
             o.Set("warnFreeGb", s.WarnFreeGb);
+            o.Set("warnFreeGbSource", s.WarnFreeGbExplicit
+                ? "settings.conf で明示"
+                : "搭載メモリ量から自動算出（搭載量の 3%・下限0.75・上限6.0）");
+            o.Set("thresholdBasisTotalGb", s.TotalPhysicalGb);
             o.Set("excludePids", string.Join(",", s.ExcludePids.Select(p =>
                 p.ToString(CultureInfo.InvariantCulture)).ToArray()));
 
             if (s.EmptyAllWorkingSets)
                 warnings.Add("emptyAllWorkingSets = true です。全プロセスのワーキングセットを切り詰めると、"
                     + "次に触った瞬間にページフォルトで戻るため体感が悪化しやすい設定です。");
+
+            // 明示されたしきい値が搭載量に対して不自然な場合は指摘する。
+            // 切り詰めは Config.ClampThresholds が別途行うが、切り詰めに掛からない範囲でも
+            // 「平常時から発動し続ける」設定は成立してしまうので、ここで気づけるようにする。
+            if (s.TotalPhysicalGb > 0 && s.AutoLightenFreeGbExplicit
+                && s.AutoLightenFreeGb > s.TotalPhysicalGb * 0.10)
+                warnings.Add("autoLightenFreeGb = " + F(s.AutoLightenFreeGb)
+                    + " は搭載 " + F(s.TotalPhysicalGb) + "GB に対して高めです。"
+                    + "Windows は空きを遊ばせずスタンバイへ回すため、実空きは平常時から小さく保たれます。"
+                    + "高すぎるしきい値は平常時から発動し続け、ファイルキャッシュを壊して逆に遅くなります。"
+                    + "この行を消せば搭載量から自動算出されます。");
 
             return o;
         }

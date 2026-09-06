@@ -211,6 +211,15 @@ Until approval, `dryRun = false` in `settings.conf` does nothing. The gate is in
 3. `autoLighten` is off by default. It runs memory-list operations when free-and-zeroed
    pages drop below a threshold. It needs elevation, and its benefit varies by machine.
    Enable it only after the human has run `--lighten` manually and seen it help.
+
+   **Do not write `autoLightenFreeGb` or `warnFreeGb` yourself.** Left unset, they are
+   computed from installed RAM (4% and 3%, clamped). Windows deliberately keeps free memory
+   low and standby high at every RAM size — a 32GB machine idles at ~1.5GB free — so a
+   threshold copied from a larger machine sits permanently above the normal free level and
+   fires on every cooldown, destroying the file cache forever. That failure makes the
+   machine slower while looking like it is helping, and the human has no way to trace it.
+   Values above 25% of installed RAM are clamped in code, but you can still do harm below
+   that line. Leave both unset unless the human asks for a specific value.
 4. `purgeAllStandby` is off by default. It is the most effective single operation when
    free pages are exhausted, and it also throws away the file cache. On NVMe the cost was
    small in the author's measurements. This is the human's call, not yours.

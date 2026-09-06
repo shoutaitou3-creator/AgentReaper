@@ -78,6 +78,44 @@ namespace AgentReaper
         [return: MarshalAs(UnmanagedType.Bool)]
         private static extern bool DestroyIcon(IntPtr handle);
 
+        [StructLayout(LayoutKind.Sequential)]
+        private struct MEMORYSTATUSEX
+        {
+            public uint dwLength;
+            public uint dwMemoryLoad;
+            public ulong ullTotalPhys;
+            public ulong ullAvailPhys;
+            public ulong ullTotalPageFile;
+            public ulong ullAvailPageFile;
+            public ulong ullTotalVirtual;
+            public ulong ullAvailVirtual;
+            public ulong ullAvailExtendedVirtual;
+        }
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool GlobalMemoryStatusEx(ref MEMORYSTATUSEX buffer);
+
+        /// <summary>
+        /// OS から見える物理メモリの総量（GB）。取得できなければ 0。
+        /// しきい値を搭載量に合わせて決めるために使う。設定読み込みのたびに呼ぶので、
+        /// WMI ではなく GlobalMemoryStatusEx を使う（プロセス列挙が要らず即座に返る）。
+        /// </summary>
+        public static double TotalPhysicalGb()
+        {
+            try
+            {
+                var m = new MEMORYSTATUSEX();
+                m.dwLength = (uint)Marshal.SizeOf(typeof(MEMORYSTATUSEX));
+                if (!GlobalMemoryStatusEx(ref m)) return 0;
+                return m.ullTotalPhys / 1024.0 / 1024.0 / 1024.0;
+            }
+            catch
+            {
+                return 0;
+            }
+        }
+
         /// <summary>GetHicon() で作った HICON を解放する（GDI ハンドルリーク防止）。</summary>
         public static void ReleaseIcon(IntPtr handle)
         {

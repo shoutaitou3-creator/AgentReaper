@@ -48,8 +48,43 @@ namespace AgentReaper
         // 配布時の既定は OFF。スタンバイの解放は「重くなってから」ではなく先回りで効くが、
         // 昇格を要するうえ効き方が機種で違う。--diagnose を見てから有効化する。
         public bool AutoLighten = false;
-        public double AutoLightenFreeGb = 6.0;         // 実空きがこれ未満で発動
+        public double AutoLightenFreeGb = 6.0;         // 実空きがこれ未満で発動（既定は搭載量から算出）
         public int AutoLightenCooldownSeconds = 180;   // 連続発動の間隔（スラッシング防止）
+
+        /// <summary>この設定の既定しきい値を算出した搭載メモリ量（GB）。診断表示用。0 なら取得失敗。</summary>
+        public double TotalPhysicalGb;
+
+        /// <summary>しきい値を settings.conf で明示されたか（診断表示用）。</summary>
+        public bool AutoLightenFreeGbExplicit;
+        public bool WarnFreeGbExplicit;
+
+        /// <summary>
+        /// しきい値を搭載メモリ量から決める。
+        ///
+        /// 固定値にしてはいけない。Windows は空きを遊ばせずスタンバイへ回すので、
+        /// 実空きは搭載量に関わらず常に小さい。128GB 機向けの 6.0GB を 16GB 機に適用すると、
+        /// 平常時から常に閾値を割っていることになり、自動解放が延々と発動して
+        /// ファイルキャッシュを壊し続ける（＝直すつもりで遅くする）。
+        ///
+        /// 実測: 32GB 機の平常時の実空きは 1.47GB、128GB 機は 18〜49GB。
+        /// 割合で決めたうえで、極端な搭載量向けに上下限を設ける。
+        /// autoLighten 側を warn 側より高くして、警告が出る前に自動解放が先に動くようにする。
+        /// </summary>
+        public void ApplyRamScaledDefaults()
+        {
+            TotalPhysicalGb = Native.TotalPhysicalGb();
+            if (TotalPhysicalGb <= 0) return;   // 取得できなければ固定既定のまま
+
+            AutoLightenFreeGb = Clamp(TotalPhysicalGb * 0.04, 1.0, 8.0);
+            WarnFreeGb = Clamp(TotalPhysicalGb * 0.03, 0.75, 6.0);
+        }
+
+        private static double Clamp(double v, double lo, double hi)
+        {
+            if (v < lo) return lo;
+            if (v > hi) return hi;
+            return v;
+        }
 
         // 警告はプロセス数で判定しない。2026-09-06 の実測でプロセス数は重さと相関しないと確定した。
         //   9/5 重かった時 726 プロセス → DWM コマ落ち 11%
@@ -175,6 +210,10 @@ namespace AgentReaper
         public static Settings LoadSettings()
         {
             var s = new Settings();
+
+            // 先に搭載量からしきい値を決める。settings.conf に明示があればこの後の解析で上書きされる。
+            s.ApplyRamScaledDefaults();
+
             if (!File.Exists(SettingsPath)) return s;
 
             foreach (string raw in File.ReadAllLines(SettingsPath))
@@ -201,12 +240,18 @@ namespace AgentReaper
                     case "purgeallstandby": s.PurgeAllStandby = ParseBool(v, false); break;
                     case "emptyallworkingsets": s.EmptyAllWorkingSets = ParseBool(v, false); break;
                     case "autolighten": s.AutoLighten = ParseBool(v, true); break;
-                    case "autolightenfreegb": s.AutoLightenFreeGb = ParseDouble(v, 6.0); break;
+                    case "autolightenfreegb":
+                        s.AutoLightenFreeGb = ParseDouble(v, s.AutoLightenFreeGb);
+                        s.AutoLightenFreeGbExplicit = true;
+                        break;
                     case "autolightencooldownseconds": s.AutoLightenCooldownSeconds = Math.Max(30, ParseInt(v, 180)); break;
                     // warnProcessCount は 2026-09-06 に廃止（プロセス数は重さと相関しない）。
                     // 古い settings.conf に残っていても落ちないよう、読み飛ばすだけにする。
                     case "warnprocesscount": break;
-                    case "warnfreegb": s.WarnFreeGb = ParseDouble(v, 5.0); break;
+                    case "warnfreegb":
+                        s.WarnFreeGb = ParseDouble(v, s.WarnFreeGb);
+                        s.WarnFreeGbExplicit = true;
+                        break;
                     case "excludepids":
                         foreach (string part in v.Split(','))
                         {
@@ -216,7 +261,58 @@ namespace AgentReaper
                         break;
                 }
             }
+
+            ClampThresholds(s);
             return s;
+        }
+
+        /// <summary>
+        /// 搭載量に対して成立しないしきい値を機械的に切り詰める。設定では回避できない。
+        ///
+        /// Windows は空きメモリを遊ばせずスタンバイへ回すので、実空きは平常時から小さい。
+        /// 搭載量の 25% を超える値を自動解放のしきい値にすると、平常時から常に閾値割れになり、
+        /// クールダウンごとに延々と発動してファイルキャッシュを壊し続ける。
+        /// 「軽くするつもりの設定で遅くなる」という、利用者が原因に辿り着けない壊れ方をする。
+        /// </summary>
+        public static void ClampThresholds(Settings s)
+        {
+            if (s.TotalPhysicalGb <= 0) return;
+
+            // 上限を別々にする。同じ上限にすると、両方が過大な設定で切り詰めた時に
+            // 同じ値へ張り付き、「自動解放が先に動き、それでも駄目なら赤くなる」という順序が失われる。
+            double lightenMax = s.TotalPhysicalGb * 0.25;
+            double warnMax = s.TotalPhysicalGb * 0.18;
+
+            if (s.AutoLightenFreeGb > lightenMax)
+            {
+                Log.Write(string.Format(
+                    "autoLightenFreeGb = {0:F1} は搭載 {1:F1}GB に対して大きすぎます。"
+                    + "平常時から常に発動してキャッシュを壊し続けるため {2:F1} に切り詰めました。",
+                    s.AutoLightenFreeGb, s.TotalPhysicalGb, lightenMax));
+                s.AutoLightenFreeGb = lightenMax;
+            }
+
+            if (s.WarnFreeGb > warnMax)
+            {
+                Log.Write(string.Format(
+                    "warnFreeGb = {0:F1} は搭載 {1:F1}GB に対して大きすぎます。"
+                    + "常時赤表示になり警告として機能しないため {2:F1} に切り詰めました。",
+                    s.WarnFreeGb, s.TotalPhysicalGb, warnMax));
+                s.WarnFreeGb = warnMax;
+            }
+
+            // 警告のしきい値は自動解放より低く保つ。
+            // 自動解放が先に動き、それでも実空きが戻らなかった時にだけ赤くなる、という順序にしたい。
+            // 上の切り詰めで両方が同じ値に張り付くと、この順序が失われる。
+            if (s.AutoLighten && s.WarnFreeGb >= s.AutoLightenFreeGb)
+            {
+                double lowered = s.AutoLightenFreeGb * 0.75;
+                Log.Write(string.Format(
+                    "warnFreeGb = {0:F1} が autoLightenFreeGb = {1:F1} 以上でした。"
+                    + "自動解放より先に警告が出ると誤報になるため {2:F1} へ下げました。",
+                    s.WarnFreeGb, s.AutoLightenFreeGb, lowered));
+                s.WarnFreeGb = lowered;
+            }
         }
 
         private static int ParseInt(string v, int fallback)

@@ -104,6 +104,7 @@ namespace AgentReaper
 
             GuardChecks();
             ApprovalGateChecks();
+            ThresholdScalingChecks();
             Console.WriteLine("PASS " + checks + " checks; no real process was terminated");
         }
 
@@ -153,6 +154,42 @@ namespace AgentReaper
             busy[0].CpuSeconds = Guard.WorkingProcessCpuSeconds + 1;
             Check(Guard.RejectDynamic(S("mcpvault"), busy, 800) != null,
                 "guard disables a pattern that caught a process doing real work");
+        }
+
+        // Thresholds must scale with installed RAM. A value copied from a larger machine
+        // would fire on every cooldown and destroy the file cache forever.
+        private static void ThresholdScalingChecks()
+        {
+            Log.Expected = true;
+            Log.Messages.Clear();
+
+            var small = new Settings();
+            small.TotalPhysicalGb = 16;
+            small.AutoLightenFreeGb = 6.0;   // 128GB machine's value, pasted into a 16GB machine
+            small.WarnFreeGb = 5.0;
+            Config.ClampThresholds(small);
+            Check(Log.Messages.Count > 0, "clamping a bad threshold is reported, not silent");
+            Check(small.AutoLightenFreeGb <= 16 * 0.25,
+                "threshold copied from a bigger machine is clamped on a small one");
+            Check(small.WarnFreeGb < small.AutoLightenFreeGb,
+                "warn threshold stays below the auto-lighten threshold after clamping");
+
+            var big = new Settings();
+            big.TotalPhysicalGb = 128;
+            big.AutoLightenFreeGb = 6.0;
+            big.WarnFreeGb = 5.0;
+            Config.ClampThresholds(big);
+            Check(big.AutoLightenFreeGb == 6.0 && big.WarnFreeGb == 5.0,
+                "a threshold that is plausible for the installed RAM is left alone");
+
+            var unknown = new Settings();
+            unknown.TotalPhysicalGb = 0;     // GlobalMemoryStatusEx failed
+            unknown.AutoLightenFreeGb = 6.0;
+            Config.ClampThresholds(unknown);
+            Check(unknown.AutoLightenFreeGb == 6.0,
+                "thresholds are left alone when installed RAM cannot be read");
+
+            Log.Expected = false;
         }
 
         // Reaping must be impossible until a human has looked at a dry run.
@@ -215,6 +252,23 @@ namespace AgentReaper
         public const int MemoryFlushModifiedList = 1, MemoryPurgeLowPriorityStandbyList = 2,
             MemoryPurgeStandbyList = 3, MemoryEmptyWorkingSets = 4;
         public static string MemoryListCommand(int command) { throw new Exception("Native operation forbidden in test"); }
+        // 0 = "installed RAM unknown", so ApplyRamScaledDefaults leaves the fixed defaults in place
+        // and the fixtures stay deterministic. The scaling itself is tested by calling
+        // Config.ClampThresholds with an explicit TotalPhysicalGb.
+        public static double TotalPhysicalGb() { return 0; }
     }
-    internal static class Log { public static void Write(string message) { throw new Exception(message); } }
+    // Logging during a test means the production code took a path the fixture did not expect,
+    // so it fails loudly by default. Set Expected = true around the few checks where a log
+    // line IS the behaviour under test, and assert on Messages afterwards.
+    internal static class Log
+    {
+        public static bool Expected;
+        public static readonly List<string> Messages = new List<string>();
+
+        public static void Write(string message)
+        {
+            if (!Expected) throw new Exception(message);
+            Messages.Add(message);
+        }
+    }
 }

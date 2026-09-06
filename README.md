@@ -98,6 +98,13 @@ child uses ~0 CPU; anything busy is doing real work.
 Editors, terminals, agent clients and OS core processes are on a hard-coded protected list
 that configuration cannot override.
 
+**Thresholds scale with installed RAM.** `autoLightenFreeGb` and `warnFreeGb` are derived
+from how much memory the machine actually has, because Windows keeps free memory low and
+standby high regardless of RAM size. A threshold copied from a 128GB workstation would sit
+permanently above a 16GB laptop's normal free level and fire forever, throwing away the file
+cache on every cooldown — slower, while appearing to help. Values above 25% of installed RAM
+are clamped in code.
+
 **Rejections are never silent.** Anything refused appears in `--diagnose` output and in the
 log with the reason. A signature that quietly stops working is worse than one that fails.
 
