@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 
 namespace AgentReaper
@@ -114,6 +115,118 @@ namespace AgentReaper
             {
                 return 0;
             }
+        }
+
+        // ---- ディスプレイ列挙 ----
+        //
+        // 内蔵GPUは表示の合成にシステムメモリ帯域を使う。画面が増えるほど、また解像度と
+        // リフレッシュレートが上がるほど、CPU にも GPU にも使用率として現れないまま帯域だけを食う。
+        // 「どこも数%なのに重い」の一因になるので、枚数と画素数を測れるようにする。
+
+        private const int EnumCurrentSettings = -1;
+        private const int DisplayDeviceAttachedToDesktop = 0x00000001;
+        private const int DisplayDeviceMirroringDriver = 0x00000008;
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        private struct DISPLAY_DEVICE
+        {
+            public int cb;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string DeviceName;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)] public string DeviceString;
+            public int StateFlags;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)] public string DeviceID;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)] public string DeviceKey;
+        }
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        private struct DEVMODE
+        {
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string dmDeviceName;
+            public ushort dmSpecVersion;
+            public ushort dmDriverVersion;
+            public ushort dmSize;
+            public ushort dmDriverExtra;
+            public uint dmFields;
+            public int dmPositionX;
+            public int dmPositionY;
+            public uint dmDisplayOrientation;
+            public uint dmDisplayFixedOutput;
+            public short dmColor;
+            public short dmDuplex;
+            public short dmYResolution;
+            public short dmTTOption;
+            public short dmCollate;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string dmFormName;
+            public ushort dmLogPixels;
+            public uint dmBitsPerPel;
+            public uint dmPelsWidth;
+            public uint dmPelsHeight;
+            public uint dmDisplayFlags;
+            public uint dmDisplayFrequency;
+            public uint dmICMMethod;
+            public uint dmICMIntent;
+            public uint dmMediaType;
+            public uint dmDitherType;
+            public uint dmReserved1;
+            public uint dmReserved2;
+            public uint dmPanningWidth;
+            public uint dmPanningHeight;
+        }
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool EnumDisplayDevicesW(string device, uint deviceIndex,
+            ref DISPLAY_DEVICE displayDevice, uint flags);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool EnumDisplaySettingsW(string deviceName, int modeNum, ref DEVMODE devMode);
+
+        /// <summary>デスクトップに接続されている画面 1 枚分の実測値。</summary>
+        public sealed class DisplayInfo
+        {
+            public string Device;        // \\.\DISPLAY1 など
+            public string Adapter;       // ドライバーが名乗るアダプター名
+            public int Width;
+            public int Height;
+            public int RefreshHz;
+            public int BitsPerPixel;
+            public bool IsMirroring;     // ミラードライバー（仮想画面の一形態）
+            public long Pixels { get { return (long)Width * Height; } }
+        }
+
+        /// <summary>デスクトップに接続されている画面を列挙する。取得できなければ空。</summary>
+        public static List<DisplayInfo> Displays()
+        {
+            var list = new List<DisplayInfo>();
+            try
+            {
+                for (uint i = 0; i < 64; i++)
+                {
+                    var dd = new DISPLAY_DEVICE();
+                    dd.cb = Marshal.SizeOf(typeof(DISPLAY_DEVICE));
+                    if (!EnumDisplayDevicesW(null, i, ref dd, 0)) break;
+                    if ((dd.StateFlags & DisplayDeviceAttachedToDesktop) == 0) continue;
+
+                    var dm = new DEVMODE();
+                    dm.dmSize = (ushort)Marshal.SizeOf(typeof(DEVMODE));
+                    if (!EnumDisplaySettingsW(dd.DeviceName, EnumCurrentSettings, ref dm)) continue;
+
+                    var d = new DisplayInfo();
+                    d.Device = dd.DeviceName;
+                    d.Adapter = dd.DeviceString;
+                    d.Width = (int)dm.dmPelsWidth;
+                    d.Height = (int)dm.dmPelsHeight;
+                    d.RefreshHz = (int)dm.dmDisplayFrequency;
+                    d.BitsPerPixel = (int)dm.dmBitsPerPel;
+                    d.IsMirroring = (dd.StateFlags & DisplayDeviceMirroringDriver) != 0;
+                    list.Add(d);
+                }
+            }
+            catch
+            {
+            }
+            return list;
         }
 
         /// <summary>GetHicon() で作った HICON を解放する（GDI ハンドルリーク防止）。</summary>

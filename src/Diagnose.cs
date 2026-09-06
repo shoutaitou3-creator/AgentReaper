@@ -285,10 +285,70 @@ namespace AgentReaper
             }
 
             o.Set("adapters", adapters);
+
+            // ---- 表示中の画面 ----
+            //
+            // 内蔵GPUは画面の合成にシステムメモリ帯域を使う。ドライバーで増やした仮想ディスプレイも
+            // 実画面と同じ合成対象なので、物理的に何も繋がっていなくても帯域と VRAM を食う。
+            // しかもこの消費は CPU 使用率にも GPU 使用率にも現れない。
+            // 「どこも数%なのに重い」の説明がつかない時は、まずここの枚数と画素数を見る。
+            var displays = new JArr();
+            double totalMinGbPerSec = 0;
+            int virtualCount = 0;
+            List<Native.DisplayInfo> ds = Native.Displays();
+            foreach (Native.DisplayInfo d in ds)
+            {
+                // 合成に最低限要る帯域。1画素4バイトを、1リフレッシュにつき読みと書きで 2 回。
+                // 実際にはウィンドウごとの中間バッファがあるのでこれより増える（下限であって上限ではない）。
+                double gbPerSec = d.Pixels * 4.0 * d.RefreshHz * 2 / 1024 / 1024 / 1024;
+                totalMinGbPerSec += gbPerSec;
+
+                // 専用VRAM を報告したアダプターに紐づかない画面は、仮想ディスプレイドライバーである
+                // ことが多い。推測であって断定ではない。
+                bool likelyVirtual = d.IsMirroring;
+                if (!likelyVirtual)
+                {
+                    likelyVirtual = true;
+                    foreach (var v in vram)
+                    {
+                        if (v.Key != null && d.Adapter != null &&
+                            (d.Adapter.IndexOf(v.Key, StringComparison.OrdinalIgnoreCase) >= 0 ||
+                             v.Key.IndexOf(d.Adapter, StringComparison.OrdinalIgnoreCase) >= 0))
+                        { likelyVirtual = false; break; }
+                    }
+                }
+                if (likelyVirtual) virtualCount++;
+
+                var jd = new JObj();
+                jd.Set("device", d.Device);
+                jd.Set("adapter", d.Adapter);
+                jd.Set("resolution", d.Width.ToString(CultureInfo.InvariantCulture) + "x"
+                    + d.Height.ToString(CultureInfo.InvariantCulture));
+                jd.Set("refreshHz", d.RefreshHz);
+                jd.Set("bitsPerPixel", d.BitsPerPixel);
+                jd.Set("megapixels", Math.Round(d.Pixels / 1000000.0, 2));
+                jd.Set("minCompositeGbPerSec", Math.Round(gbPerSec, 2));
+                jd.Set("likelyVirtual", likelyVirtual);
+                displays.Add(jd);
+            }
+            o.Set("displayCount", ds.Count);
+            o.Set("likelyVirtualDisplayCount", virtualCount);
+            o.Set("minCompositeGbPerSec", Math.Round(totalMinGbPerSec, 2));
+            o.Set("displays", displays);
+
+            if (virtualCount > 0)
+                warnings.Add("仮想ディスプレイとみられる画面が " + virtualCount + " 枚あります（全 "
+                    + ds.Count + " 枚）。仮想画面も実画面と同じように内蔵GPUが合成するので、"
+                    + "何も表示していなくても帯域を消費します。CPU/GPU の使用率には出ません。"
+                    + "重さの切り分けとして、仮想画面を一時的に外して体感を比べること。"
+                    + "（likelyVirtual は「専用VRAM を報告したアダプターに紐づかない画面」という推測。断定ではない）");
+
             o.Set("note",
                 "dedicatedVramMb はレジストリの HardwareInformation.qwMemorySize。"
                 + "Win32_VideoController.AdapterRAM は 4GB 超で壊れた値を返すので使っていない。"
-                + "内蔵GPUの共有分は実空きと同じページプールから取る。");
+                + "内蔵GPUの共有分は実空きと同じページプールから取る。"
+                + "minCompositeGbPerSec は画素数×4バイト×リフレッシュ×2 の下限見積り。"
+                + "メモリがシングルチャネルだと使える帯域が半分になるので physicalMemory も併せて見ること。");
             return o;
         }
 
