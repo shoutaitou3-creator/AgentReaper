@@ -355,6 +355,13 @@ have. This is worth more than any single measurement, and people rarely think of
 healthy machine is not the one they are annoyed at. Ask whether such a machine exists before
 starting the list below.
 
+In the field this eliminated three candidates in a single step, including the one that had
+looked strongest. The **comfortable** machine turned out to have *less* free memory than the
+slow one (1.3 GB against 11.3 GB), the same single-channel memory, and more screens driving
+more composition bandwidth. Every one of those numbers, read on the slow machine alone against
+a threshold, would have produced a confident and expensive wrong answer. A number only means
+something next to the number from a machine that works.
+
 Do not skip to 5 because it is the most satisfying explanation. If 2 produced a null result and
 3 was never tried, a memory purchase is a guess with an invoice attached.
 
@@ -414,6 +421,10 @@ in `src/*.cs` and you can translate them — that is a normal edit to this repos
 - **同じ構成で問題の出ていない機体があるなら、それを使う。** 両方で `--diagnose --json` を採って
   差分を見る。**両方で同じ値の項目は、それだけで候補から外せる**（差を説明できないので）。
   実験より速く、確実。健康な方の機体は誰も気にしていないので見落とされやすい。
+  実地では、これで一度に3つの候補が消えた。**快適な方の機体のほうが実空きが少なく（1.3GB 対
+  11.3GB）、同じシングルチャネルで、画面はむしろ多かった。** 遅い機体の数値だけをしきい値と
+  比べていたら、自信を持って高い買い物をして外していた。数値は、動いている機体の数値と
+  並べて初めて意味を持つ。
 - まず平常時の `memory.freeAndZeroGb` を控える。それがこの機体の平常値。搭載量が何GBでも
   小さい（32GB 機なら 1.5GB 程度が正常）。以後はこの実測値とだけ比べる。他機の数値は使わない。
 - 1回に1つだけ変えて、**数値と体感の両方**を採る。数値は「効いた」ことしか言わない。
